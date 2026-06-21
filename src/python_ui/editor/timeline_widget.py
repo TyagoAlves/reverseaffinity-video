@@ -338,8 +338,9 @@ class TimelineWidget(QWidget):
 
     def add_track(self, is_audio=False):
         t = "audio" if is_audio else "video"
-        self._timeline.add_track(f"{t.capitalize()} {len(self._timeline.tracks) + 1}", t)
+        track_id = self._timeline.add_track(f"{t.capitalize()} {len(self._timeline.tracks) + 1}", t)
         self.refresh()
+        return track_id
 
     def remove_track(self, track_id=None):
         if track_id is None and self._timeline.tracks:

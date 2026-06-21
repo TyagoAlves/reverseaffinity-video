@@ -22,6 +22,7 @@ from editor.crop_tool import CropOverlay, CropControlPanel
 from editor.lut import LutPanel, apply_lut
 from editor.chroma_key import ChromaKeyWidget
 from editor.blur_sharpen import BlurSharpenWidget
+from editor.audio_mixer import AudioMixerPanel
 
 
 class SourceMonitor(QWidget):
@@ -436,6 +437,12 @@ class VideoMainWindow(QMainWindow):
         scopes_dock.setMinimumHeight(180)
         self.addDockWidget(Qt.RightDockWidgetArea, scopes_dock)
 
+        mixer_dock = QDockWidget(_("Audio Mixer"), self)
+        self._audio_mixer = AudioMixerPanel()
+        mixer_dock.setWidget(self._audio_mixer)
+        mixer_dock.setMinimumWidth(220)
+        self.addDockWidget(Qt.RightDockWidgetArea, mixer_dock)
+
     def _connect_signals(self):
         self.transport.playToggled.connect(self._on_transport_play)
         self.transport.stopTriggered.connect(self._on_transport_stop)
@@ -552,15 +559,18 @@ class VideoMainWindow(QMainWindow):
         self.statusBar().showMessage(_("Clips ungrouped"), 2000)
 
     def add_video_track(self):
-        self.timeline.add_track()
+        idx = self.timeline.add_track()
         self.statusBar().showMessage(_("Video track added"))
 
     def add_audio_track(self):
-        self.timeline.add_track(is_audio=True)
+        idx = self.timeline.add_track(is_audio=True)
+        name = _("Audio {}").format(idx + 1)
+        self._audio_mixer.add_track(idx, name)
         self.statusBar().showMessage(_("Audio track added"))
 
     def delete_track(self):
         self.timeline.remove_track()
+        self._audio_mixer.remove_track(0)
         self.statusBar().showMessage(_("Track deleted"))
 
     def toggle_fullscreen(self):
