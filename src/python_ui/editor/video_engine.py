@@ -15,6 +15,7 @@ class Clip:
         self.track_id = track_id
         self.enabled = enabled
         self.name = name
+        self.effects = None  # EffectStack, set lazily
 
     @property
     def end_time(self):

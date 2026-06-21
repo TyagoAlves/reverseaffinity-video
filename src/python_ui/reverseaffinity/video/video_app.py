@@ -26,6 +26,7 @@ from editor.audio_mixer import AudioMixerPanel
 from editor.video_glplayer import VideoGLPlayer
 from editor.gpu_accel import GPUAccel
 from editor.export_dialog import ExportDialog
+from editor.effect_stack import EffectStackWidget, EffectStack, EFFECT_TYPES, EffectItem
 
 
 class SourceMonitor(QWidget):
@@ -537,6 +538,7 @@ class VideoMainWindow(QMainWindow):
         self.transport.stepBackward.connect(self.prev_frame)
         self.transport.zoomChanged.connect(self.timeline.set_zoom_level)
         self.effects_panel.effectSelected.connect(self._on_effect_selected)
+        self.timeline.clipSelected.connect(self._on_clip_selected)
         self.timeline.dropAccepted.connect(lambda name: self.statusBar().showMessage(_("Added to timeline: ") + name, 2000))
         self.program_monitor.mediaLoaded.connect(lambda _: self._update_scopes())
         self.source_monitor.mediaLoaded.connect(lambda _: self._update_scopes())
@@ -614,6 +616,30 @@ class VideoMainWindow(QMainWindow):
     def export_media(self):
         dlg = ExportDialog(self.timeline, self)
         dlg.exec_()
+
+    def _on_clip_selected(self, clip_id):
+        clip = self.timeline._timeline.find_clip(clip_id)
+        if clip is None:
+            return
+        if not hasattr(self, '_effect_stack_widget') or self._effect_stack_widget is None:
+            self._effect_stack_widget = EffectStackWidget()
+            self._effect_stack_widget.stackChanged.connect(self._on_effect_stack_changed)
+        if clip.effects is None:
+            clip.effects = EffectStack()
+        self._effect_stack_widget.set_stack(clip.effects)
+        self._efctrl_dock.setWidget(self._effect_stack_widget)
+        self._efctrl_dock.setWindowTitle(_("Effects: ") + clip.name)
+        self._selected_clip_id = clip_id
+
+    def _on_effect_stack_changed(self):
+        clip = self.timeline._timeline.find_clip(self._selected_clip_id) if hasattr(self, '_selected_clip_id') else None
+        if clip is None:
+            return
+        img = self.program_monitor.current_frame()
+        if img is not None and clip.effects is not None:
+            result = clip.effects.apply(img)
+            self.program_monitor.set_frame(result)
+            self._update_scopes()
 
     def undo(self):
         self.statusBar().showMessage(_("Undo"), 2000)
@@ -712,9 +738,43 @@ class VideoMainWindow(QMainWindow):
             self._chroma_key_widget._key_label.setText(_("Key: Luma"))
             self.statusBar().showMessage(_("Luma Key activated"))
         elif normalized in ("blur_gaussian", "sharpen"):
-            self._show_blur_sharpen()
+            self._add_effect_to_clip(effect_name)
+        elif normalized in ("transform", "opacity"):
+            self._add_effect_to_clip(effect_name)
         elif normalized == "crop":
             self._show_crop_tool()
+        else:
+            self._add_effect_to_clip(effect_name)
+
+    def _add_effect_to_clip(self, effect_name):
+        if not hasattr(self, '_selected_clip_id') or self._selected_clip_id < 0:
+            self.statusBar().showMessage(_("Select a clip on the timeline first"))
+            return
+        clip = self.timeline._timeline.find_clip(self._selected_clip_id)
+        if clip is None:
+            return
+        etype_map = {
+            "Blur/Gaussian": ("gaussian_blur", {"radius": 3}),
+            "Sharpen": ("sharpen", {"amount": 3}),
+            "Transform": ("brightness", {"value": 0}),
+            "Opacity": ("brightness", {"value": 0}),
+        }
+        etype, params = etype_map.get(effect_name, (None, None))
+        if etype is None:
+            for name, et, p in EFFECT_TYPES:
+                if _(name).lower() == effect_name.lower() or name.lower() == effect_name.lower():
+                    etype, params = et, dict(p)
+                    break
+        if etype is None:
+            self.statusBar().showMessage(_("Unknown effect: ") + effect_name)
+            return
+        if clip.effects is None:
+            from editor.effect_stack import EffectStack
+            clip.effects = EffectStack()
+        item = EffectItem(effect_name, etype, params, True)
+        clip.effects.add(item)
+        self._on_clip_selected(self._selected_clip_id)
+        self.statusBar().showMessage(_("Added ") + effect_name + _(" to clip"))
         else:
             self.statusBar().showMessage(_("Effect selected: ") + effect_name)
 
