@@ -79,6 +79,31 @@ class SourceMonitor(QWidget):
         self._play_timer = QTimer()
         self._play_timer.setInterval(33)
         self._play_timer.timeout.connect(self._advance_frame)
+        self.setAcceptDrops(True)
+
+    MEDIA_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv',
+                        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff',
+                        '.webp', '.wav', '.mp3', '.aac', '.flac', '.ogg'}
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                ext = os.path.splitext(url.toLocalFile() or '')[1].lower()
+                if ext in self.MEDIA_EXTENSIONS:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if not path:
+                continue
+            ext = os.path.splitext(path)[1].lower()
+            if ext in self.MEDIA_EXTENSIONS:
+                self._load_media(path)
+                self._media_path = path
+                self.mediaLoaded.emit(path)
 
     def import_media(self):
         path, _filter = get_open_file_name(
@@ -316,6 +341,27 @@ class VideoMainWindow(QMainWindow):
         self._connect_signals()
         self._color_grading_panel = None
         self.statusBar().showMessage(_("Ready"))
+        self.setAcceptDrops(True)
+
+    MEDIA_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv',
+                        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff',
+                        '.webp', '.wav', '.mp3', '.aac', '.flac', '.ogg'}
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                ext = os.path.splitext(url.toLocalFile() or '')[1].lower()
+                if ext in self.MEDIA_EXTENSIONS:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if not path:
+                continue
+            self._import_single_media(path)
 
     @staticmethod
     def _action(text, slot, shortcut=None):
@@ -452,6 +498,7 @@ class VideoMainWindow(QMainWindow):
         self.transport.stepBackward.connect(self.prev_frame)
         self.transport.zoomChanged.connect(self.timeline.set_zoom_level)
         self.effects_panel.effectSelected.connect(self._on_effect_selected)
+        self.timeline.dropAccepted.connect(lambda name: self.statusBar().showMessage(_("Added to timeline: ") + name, 2000))
         self.program_monitor.mediaLoaded.connect(lambda _: self._update_scopes())
         self.source_monitor.mediaLoaded.connect(lambda _: self._update_scopes())
 
@@ -490,6 +537,18 @@ class VideoMainWindow(QMainWindow):
     # --- Menu actions ---
     def import_media(self):
         self.project_panel.import_media()
+
+    def _import_single_media(self, path):
+        if path not in self.project_panel._files:
+            self.project_panel._files.append(path)
+            name = os.path.basename(path)
+            ext = os.path.splitext(path)[1].upper().lstrip(".")
+            item = QTreeWidgetItem([name, "00:00:00", ext])
+            item.setData(0, Qt.UserRole, path)
+            self.project_panel.tree.addTopLevelItem(item)
+            self.project_panel.tree.resizeColumnToContents(0)
+            self.source_monitor.set_media(path)
+            self.statusBar().showMessage(_("Imported: ") + name, 2000)
 
     def new_project(self):
         self.timeline.clear()

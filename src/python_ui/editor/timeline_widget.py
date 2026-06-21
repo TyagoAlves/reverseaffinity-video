@@ -310,6 +310,7 @@ class TrackRow(QWidget):
 
 
 class TimelineWidget(QWidget):
+    dropAccepted = pyqtSignal(str)
     timeChanged = pyqtSignal(float)
     clipSelected = pyqtSignal(int)
     trackSelected = pyqtSignal(int)
@@ -359,6 +360,42 @@ class TimelineWidget(QWidget):
         tb_layout.setContentsMargins(8, 4, 8, 4)
         tb_layout.addWidget(QLabel("Transport Controls", styleSheet="color: #555; font-size: 10px;"))
         layout.addWidget(transport_bar)
+        self.setAcceptDrops(True)
+
+    MEDIA_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv',
+                        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff',
+                        '.webp', '.wav', '.mp3', '.aac', '.flac', '.ogg'}
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                ext = os.path.splitext(url.toLocalFile() or '')[1].lower()
+                if ext in self.MEDIA_EXTENSIONS:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        drop_time = self._current_time
+        target_track = None
+        if self._timeline.tracks:
+            target_track = next((t for t in self._timeline.tracks if t.type == 'video'), self._timeline.tracks[0])
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if not path:
+                continue
+            ext = os.path.splitext(path)[1].lower()
+            if ext not in self.MEDIA_EXTENSIONS:
+                continue
+            if not self._timeline.tracks:
+                tid = self.add_track(is_audio=(ext in ('.wav', '.mp3', '.aac', '.flac', '.ogg')))
+            if target_track is None and self._timeline.tracks:
+                target_track = self._timeline.tracks[-1]
+            if target_track is not None:
+                clip = target_track.add_clip(path, drop_time, duration=5.0)
+                drop_time += 5.0
+                self.refresh()
+                self.dropAccepted.emit(os.path.basename(path))
 
     @property
     def snap_enabled(self):
