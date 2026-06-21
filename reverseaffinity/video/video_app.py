@@ -19,6 +19,7 @@ from editor.file_dialog import get_open_file_name, get_open_file_names, get_save
 from editor.color_grading import ColorGradingPanel
 from editor.scopes import ScopesPanel
 from editor.crop_tool import CropOverlay, CropControlPanel
+from editor.lut import LutPanel, apply_lut
 
 
 class SourceMonitor(QWidget):
@@ -301,6 +302,7 @@ class VideoMainWindow(QMainWindow):
         self._playing = False
         self._loop = False
         self._color_params = {}
+        self._current_lut = None
 
         self._setup_menus()
         self._setup_toolbars()
@@ -604,10 +606,27 @@ class VideoMainWindow(QMainWindow):
 
     def _show_color_grading(self):
         if self._color_grading_panel is None:
+            container = QWidget()
+            cl = QVBoxLayout(container)
+            cl.setContentsMargins(0, 0, 0, 0)
+
             self._color_grading_panel = ColorGradingPanel()
             self._color_grading_panel.paramsChanged.connect(self._on_color_params_changed)
-        self._efctrl_dock.setWidget(self._color_grading_panel)
+            cl.addWidget(self._color_grading_panel)
+
+            self._lut_panel = LutPanel()
+            self._lut_panel.lutChanged.connect(self._on_lut_changed)
+            cl.addWidget(self._lut_panel)
+
+            self._cg_container = container
+
+        self._efctrl_dock.setWidget(self._cg_container)
         self._efctrl_dock.setWindowTitle(_("Color Grading"))
+
+    def _on_lut_changed(self, lut_data):
+        self._current_lut = lut_data
+        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+            self._apply_color_to_preview()
 
     def _on_color_params_changed(self, params):
         self._color_params = params
@@ -620,6 +639,8 @@ class VideoMainWindow(QMainWindow):
             return
         image = pixmap.toImage()
         graded = self._color_grading_panel.apply_to_image(image)
+        if self._current_lut:
+            graded = apply_lut(graded, self._current_lut)
         self.program_monitor.video_label.setPixmap(QPixmap.fromImage(graded))
         self.scopes_panel.set_image(graded)
 
