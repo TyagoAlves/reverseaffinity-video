@@ -11,6 +11,7 @@ Hotkeys:
 from PyQt5.QtCore import Qt, QPointF, QRectF
 from .brushengine import BrushEngine, CircleTip, SquareTip, TextureTip
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontDatabase, QPainterPath, QCursor
+from .path import Path
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QComboBox,
     QSpinBox, QPushButton, QLabel, QCheckBox, QMessageBox,

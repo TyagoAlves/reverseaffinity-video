@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QPointF
-from PyQt5.QtGui import QPainterPath, QColor
+from PyQt5.QtGui import QPainterPath, QColor, QPainter, QBrush, QPen
 import math
 
 
