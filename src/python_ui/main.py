@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QIcon
 from reverseaffinity.i18n import _
@@ -8,6 +9,7 @@ from reverseaffinity.shared.resources import apply_dark_theme
 
 def main():
     app = QApplication(sys.argv)
+    app.setAttribute(Qt.AA_DontUseNativeMenuBar, True)
     app.setApplicationName("reverseaffinity")
     app.setOrganizationName("reverseaffinity")
     icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icon.svg")

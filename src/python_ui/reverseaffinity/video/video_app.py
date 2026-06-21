@@ -324,6 +324,7 @@ class VideoMainWindow(QMainWindow):
         return a
 
     def _setup_menus(self):
+        self.menuBar().setNativeMenuBar(False)
         mbar = self.menuBar()
 
         file_m = mbar.addMenu(_("&File"))
