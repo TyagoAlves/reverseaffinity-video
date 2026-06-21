@@ -206,11 +206,11 @@ class ExportDialog(QDialog):
         h = self._height_spin.value()
         fps = self._fps_spin.value()
 
+        dur = self._timeline._timeline.duration() if self._timeline and hasattr(self._timeline, '_timeline') else 0.0
+
         cmd = [self._ffmpeg_path, "-y"]
-        if self._timeline and hasattr(self._timeline, '_timeline'):
-            dur = self._timeline._timeline.duration()
-            if dur > 0:
-                cmd.extend(["-t", str(dur)])
+        if dur > 0:
+            cmd.extend(["-t", str(dur)])
 
         cmd.extend([
             "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}:r={fps}:d={max(dur, 1)}",

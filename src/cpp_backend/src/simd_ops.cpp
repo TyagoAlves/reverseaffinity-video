@@ -62,6 +62,96 @@ static void blend_screen_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
     }
 }
 
+static void blend_overlay_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        for (int c = 0; c < 3; ++c) {
+            int s = src[si + c], d = dst[si + c];
+            dst[si + c] = (d < 128) ? div255_round(2 * s * d) : 255 - div255_round(2 * (255 - s) * (255 - d));
+        }
+    }
+}
+
+static void blend_darken_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        dst[si + 0] = std::min(src[si + 0], dst[si + 0]);
+        dst[si + 1] = std::min(src[si + 1], dst[si + 1]);
+        dst[si + 2] = std::min(src[si + 2], dst[si + 2]);
+    }
+}
+
+static void blend_lighten_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        dst[si + 0] = std::max(src[si + 0], dst[si + 0]);
+        dst[si + 1] = std::max(src[si + 1], dst[si + 1]);
+        dst[si + 2] = std::max(src[si + 2], dst[si + 2]);
+    }
+}
+
+static void blend_difference_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        dst[si + 0] = abs(src[si + 0] - dst[si + 0]);
+        dst[si + 1] = abs(src[si + 1] - dst[si + 1]);
+        dst[si + 2] = abs(src[si + 2] - dst[si + 2]);
+    }
+}
+
+static void blend_add_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        dst[si + 0] = std::min(255, src[si + 0] + dst[si + 0]);
+        dst[si + 1] = std::min(255, src[si + 1] + dst[si + 1]);
+        dst[si + 2] = std::min(255, src[si + 2] + dst[si + 2]);
+    }
+}
+
+static void blend_subtract_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        dst[si + 0] = std::max(0, dst[si + 0] - src[si + 0]);
+        dst[si + 1] = std::max(0, dst[si + 1] - src[si + 1]);
+        dst[si + 2] = std::max(0, dst[si + 2] - src[si + 2]);
+    }
+}
+
+static void blend_color_dodge_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        for (int c = 0; c < 3; ++c) {
+            int s = src[si + c], d = dst[si + c];
+            dst[si + c] = (s < 255) ? std::min(255, (d * 255) / (255 - s)) : 255;
+        }
+    }
+}
+
+static void blend_color_burn_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        for (int c = 0; c < 3; ++c) {
+            int s = src[si + c], d = dst[si + c];
+            dst[si + c] = (s > 0) ? 255 - std::min(255, (255 - d) * 255 / s) : 0;
+        }
+    }
+}
+
+static void blend_soft_light_scalar(const uint8_t* src, uint8_t* dst, int pixels) {
+    for (int i = 0; i < pixels; ++i) {
+        int si = i * 4;
+        for (int c = 0; c < 3; ++c) {
+            int s = src[si + c], d = dst[si + c];
+            if (s < 128) {
+                dst[si + c] = d - div255_round((255 - 2 * s) * d * (255 - d));
+            } else {
+                int sqrt_d = static_cast<int>(std::sqrt(d * 256.0)) * 16;
+                dst[si + c] = d + div255_round((2 * s - 255) * (sqrt_d - d));
+            }
+        }
+    }
+}
+
 static void grayscale_scalar(uint8_t* pixels, int count) {
     for (int i = 0; i < count; ++i) {
         int si = i * 4;
@@ -196,6 +286,42 @@ void blend_screen(const uint8_t* src, uint8_t* dst, int pixels) {
 #else
     blend_screen_scalar(src, dst, pixels);
 #endif
+}
+
+void blend_overlay(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_overlay_scalar(src, dst, pixels);
+}
+
+void blend_darken(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_darken_scalar(src, dst, pixels);
+}
+
+void blend_lighten(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_lighten_scalar(src, dst, pixels);
+}
+
+void blend_difference(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_difference_scalar(src, dst, pixels);
+}
+
+void blend_add(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_add_scalar(src, dst, pixels);
+}
+
+void blend_subtract(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_subtract_scalar(src, dst, pixels);
+}
+
+void blend_color_dodge(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_color_dodge_scalar(src, dst, pixels);
+}
+
+void blend_color_burn(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_color_burn_scalar(src, dst, pixels);
+}
+
+void blend_soft_light(const uint8_t* src, uint8_t* dst, int pixels) {
+    blend_soft_light_scalar(src, dst, pixels);
 }
 
 void grayscale(uint8_t* pixels, int count) {
