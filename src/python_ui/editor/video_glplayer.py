@@ -419,6 +419,14 @@ class VideoGLPlayer(QOpenGLWidget):
     def has_frame(self):
         return self._has_frame
 
+    def current_frame_qimage(self):
+        if not self._has_frame or self._frame_data is None:
+            return None
+        from PyQt5.QtGui import QImage
+        h, w, c = self._frame_data.shape
+        fmt = QImage.Format_RGB888 if c == 3 else QImage.Format_RGBA8888
+        return QImage(self._frame_data.data, w, h, w * c, fmt).copy()
+
     def current_aspect_ratio(self):
         return self._aspect_ratio
 

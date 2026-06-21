@@ -23,6 +23,8 @@ from editor.lut import LutPanel, apply_lut
 from editor.chroma_key import ChromaKeyWidget
 from editor.blur_sharpen import BlurSharpenWidget
 from editor.audio_mixer import AudioMixerPanel
+from editor.video_glplayer import VideoGLPlayer
+from editor.gpu_accel import GPUAccel
 
 
 class SourceMonitor(QWidget):
@@ -61,6 +63,11 @@ class SourceMonitor(QWidget):
         self.video_label.setStyleSheet(
             "background-color: #0a0a0a; color: #444; font-size: 18px; border: 1px solid #222;"
         )
+        self.video_label.setVisible(False)
+
+        self.gl_player = VideoGLPlayer()
+        self.gl_player.setMinimumHeight(200)
+        self._video_layout.addWidget(self.gl_player, 1)
         self._video_layout.addWidget(self.video_label, 1)
 
         self._crop_overlay = CropOverlay(self._video_container)
@@ -115,9 +122,6 @@ class SourceMonitor(QWidget):
             self._media_path = path
             name = os.path.basename(path)
             self.video_label.setText(name)
-            self.video_label.setStyleSheet(
-                "background-color: #0a0a0a; color: #0f0; font-size: 14px; border: 1px solid #333;"
-            )
             self._load_media(path)
             return path
         return None
@@ -127,21 +131,37 @@ class SourceMonitor(QWidget):
         if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
             pix = QPixmap(path)
             if not pix.isNull():
-                scaled = pix.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.video_label.setPixmap(scaled)
+                arr = self._pixmap_to_numpy(pix)
+                self.gl_player.set_frame(arr)
+                self.video_label.setVisible(False)
+                self.gl_player.setVisible(True)
                 self._total_frames = 1
                 self._fps = 1
                 self.scrub_slider.setRange(0, 0)
+        elif ext in (".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"):
+            pix = QPixmap(path)
+            if not pix.isNull():
+                arr = self._pixmap_to_numpy(pix)
+                self.gl_player.set_frame(arr)
+                self.video_label.setVisible(False)
+                self.gl_player.setVisible(True)
         self.time_label.setText(f"00:00:00.000 / 00:00:00.000")
         self.mediaLoaded.emit(path)
+
+    @staticmethod
+    def _pixmap_to_numpy(pix):
+        qimg = pix.toImage().convertToFormat(4)
+        w, h = qimg.width(), qimg.height()
+        ptr = qimg.constBits()
+        ptr.setsize(h * w * 4)
+        import numpy as np
+        arr = np.frombuffer(ptr, np.uint8).reshape(h, w, 4)
+        return arr[:, :, :3]
 
     def set_media(self, path):
         self._media_path = path
         name = os.path.basename(path)
         self.video_label.setText(name)
-        self.video_label.setStyleSheet(
-            "background-color: #0a0a0a; color: #0f0; font-size: 14px; border: 1px solid #333;"
-        )
         self._load_media(path)
 
     def show_crop_overlay(self, visible=True):
@@ -154,18 +174,30 @@ class SourceMonitor(QWidget):
         return self._crop_overlay
 
     def _update_crop_overlay_geometry(self):
-        vb = self.video_label.geometry()
+        vb = self.gl_player.geometry()
         self._crop_overlay.setGeometry(vb)
+
+    def current_frame(self):
+        qimg = self.gl_player.current_frame_qimage()
+        if qimg is not None:
+            return qimg
+        return None
+
+    def set_frame(self, qimage):
+        if qimage is None or qimage.isNull():
+            return
+        h, w = qimage.height(), qimage.width()
+        ptr = qimage.constBits()
+        ptr.setsize(h * w * 4)
+        import numpy as np
+        arr = np.frombuffer(ptr, np.uint8).reshape(h, w, 4)
+        self.gl_player.set_frame(arr[:, :, :3])
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.video_label.pixmap() and not self.video_label.pixmap().isNull():
-            scaled = self.video_label.pixmap().scaled(
-                self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            self.video_label.setPixmap(scaled)
         if self._crop_overlay.isVisible():
             self._update_crop_overlay_geometry()
+        self.gl_player.update()
 
     def toggle_play(self):
         self._playing = not self._playing
@@ -342,6 +374,12 @@ class VideoMainWindow(QMainWindow):
         self._color_grading_panel = None
         self.statusBar().showMessage(_("Ready"))
         self.setAcceptDrops(True)
+
+        self._gpu_accel = GPUAccel.get_instance()
+        self._gpu_label = QLabel(_("GPU: ") + self._gpu_accel.backend_name)
+        self._gpu_label.setStyleSheet("padding: 2px 8px; color: {};".format(
+            "#4a4" if self._gpu_accel.is_active else "#888"))
+        self.statusBar().addPermanentWidget(self._gpu_label)
 
     MEDIA_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv',
                         '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff',
@@ -705,29 +743,27 @@ class VideoMainWindow(QMainWindow):
 
     def _on_lut_changed(self, lut_data):
         self._current_lut = lut_data
-        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+        if self.program_monitor.current_frame() is not None:
             self._apply_color_to_preview()
 
     def _on_color_params_changed(self, params):
         self._color_params = params
-        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+        if self.program_monitor.current_frame() is not None:
             self._apply_color_to_preview()
 
     def _apply_color_to_preview(self):
-        pixmap = self.program_monitor.video_label.pixmap()
-        if pixmap is None or pixmap.isNull():
+        img = self.program_monitor.current_frame()
+        if img is None:
             return
-        image = pixmap.toImage()
-        graded = self._color_grading_panel.apply_to_image(image)
+        graded = self._color_grading_panel.apply_to_image(img)
         if self._current_lut:
             graded = apply_lut(graded, self._current_lut)
-        self.program_monitor.video_label.setPixmap(QPixmap.fromImage(graded))
-        self.scopes_panel.set_image(graded)
+        self.program_monitor.set_frame(graded)
 
     def _update_scopes(self):
-        pixmap = self.program_monitor.video_label.pixmap()
-        if pixmap and not pixmap.isNull():
-            self.scopes_panel.set_image(pixmap.toImage())
+        img = self.program_monitor.current_frame()
+        if img is not None:
+            self.scopes_panel.set_image(img)
 
     def _show_crop_tool(self):
         self.program_monitor.show_crop_overlay(True)
@@ -747,9 +783,8 @@ class VideoMainWindow(QMainWindow):
 
     def _apply_crop(self, left, top, right, bottom):
         self.program_monitor.show_crop_overlay(False)
-        pixmap = self.program_monitor.video_label.pixmap()
-        if pixmap and not pixmap.isNull():
-            img = pixmap.toImage()
+        img = self.program_monitor.current_frame()
+        if img is not None:
             w, h = img.width(), img.height()
             crop_x = left
             crop_y = top
@@ -757,7 +792,7 @@ class VideoMainWindow(QMainWindow):
             crop_h = h - top - bottom
             if crop_w > 0 and crop_h > 0:
                 cropped = img.copy(crop_x, crop_y, crop_w, crop_h)
-                self.program_monitor.video_label.setPixmap(QPixmap.fromImage(cropped))
+                self.program_monitor.set_frame(cropped)
                 self._update_scopes()
                 self.statusBar().showMessage(_("Crop applied"))
 
@@ -767,17 +802,16 @@ class VideoMainWindow(QMainWindow):
             self._chroma_key_widget.paramsChanged.connect(self._on_chroma_params_changed)
         self._efctrl_dock.setWidget(self._chroma_key_widget)
         self._efctrl_dock.setWindowTitle(_("Chroma Key"))
-        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+        if self.program_monitor.current_frame() is not None:
             self._on_chroma_params_changed(self._chroma_key_widget.params())
 
     def _on_chroma_params_changed(self, params):
         self._chroma_params = params
-        pixmap = self.program_monitor.video_label.pixmap()
-        if pixmap is None or pixmap.isNull():
+        img = self.program_monitor.current_frame()
+        if img is None:
             return
-        image = pixmap.toImage()
-        keyed = self._chroma_key_widget.apply_to_image(image)
-        self.program_monitor.video_label.setPixmap(QPixmap.fromImage(keyed))
+        keyed = self._chroma_key_widget.apply_to_image(img)
+        self.program_monitor.set_frame(keyed)
         self._update_scopes()
 
     def _show_blur_sharpen(self):
@@ -786,16 +820,15 @@ class VideoMainWindow(QMainWindow):
             self._blur_sharpen_widget.paramsChanged.connect(self._on_blur_sharpen_changed)
         self._efctrl_dock.setWidget(self._blur_sharpen_widget)
         self._efctrl_dock.setWindowTitle(_("Blur / Sharpen"))
-        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+        if self.program_monitor.current_frame() is not None:
             self._on_blur_sharpen_changed({"mode": "blur", "amount": 3})
 
     def _on_blur_sharpen_changed(self, params):
-        pixmap = self.program_monitor.video_label.pixmap()
-        if pixmap is None or pixmap.isNull():
+        img = self.program_monitor.current_frame()
+        if img is None:
             return
-        image = pixmap.toImage()
-        result = self._blur_sharpen_widget.apply_to_image(image)
-        self.program_monitor.video_label.setPixmap(QPixmap.fromImage(result))
+        result = self._blur_sharpen_widget.apply_to_image(img)
+        self.program_monitor.set_frame(result)
         self._update_scopes()
 
     def go_start(self):
