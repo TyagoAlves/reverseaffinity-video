@@ -18,6 +18,7 @@ from editor.video_engine import Timeline, Track, Clip, TransportState
 from editor.file_dialog import get_open_file_name, get_open_file_names, get_save_file_name
 from editor.color_grading import ColorGradingPanel
 from editor.scopes import ScopesPanel
+from editor.crop_tool import CropOverlay, CropControlPanel
 
 
 class SourceMonitor(QWidget):
@@ -46,13 +47,21 @@ class SourceMonitor(QWidget):
         tb.addWidget(self.time_label)
         layout.addWidget(tb)
 
+        self._video_container = QWidget()
+        self._video_layout = QVBoxLayout(self._video_container)
+        self._video_layout.setContentsMargins(0, 0, 0, 0)
+
         self.video_label = QLabel(label)
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumHeight(200)
         self.video_label.setStyleSheet(
             "background-color: #0a0a0a; color: #444; font-size: 18px; border: 1px solid #222;"
         )
-        layout.addWidget(self.video_label, 1)
+        self._video_layout.addWidget(self.video_label, 1)
+
+        self._crop_overlay = CropOverlay(self._video_container)
+        self._crop_overlay.setVisible(False)
+        layout.addWidget(self._video_container, 1)
 
         self.scrub_slider = QSlider(Qt.Horizontal)
         self.scrub_slider.setStyleSheet("""
@@ -106,6 +115,29 @@ class SourceMonitor(QWidget):
         )
         self._load_media(path)
 
+    def show_crop_overlay(self, visible=True):
+        self._crop_overlay.setVisible(visible)
+        if visible:
+            self._crop_overlay.raise_()
+            self._update_crop_overlay_geometry()
+
+    def crop_overlay(self):
+        return self._crop_overlay
+
+    def _update_crop_overlay_geometry(self):
+        vb = self.video_label.geometry()
+        self._crop_overlay.setGeometry(vb)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.video_label.pixmap() and not self.video_label.pixmap().isNull():
+            scaled = self.video_label.pixmap().scaled(
+                self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            self.video_label.setPixmap(scaled)
+        if self._crop_overlay.isVisible():
+            self._update_crop_overlay_geometry()
+
     def toggle_play(self):
         self._playing = not self._playing
         if self._playing:
@@ -145,14 +177,6 @@ class SourceMonitor(QWidget):
         s = int(seconds % 60)
         ms = int((seconds - int(seconds)) * 1000)
         return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.video_label.pixmap() and not self.video_label.pixmap().isNull():
-            scaled = self.video_label.pixmap().scaled(
-                self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            self.video_label.setPixmap(scaled)
 
     def set_time(self, seconds):
         frame = int(seconds * self._fps)
@@ -573,6 +597,8 @@ class VideoMainWindow(QMainWindow):
             self.statusBar().showMessage(_("Color grading: ") + effect_name)
         elif normalized in ("blur_gaussian", "sharpen", "chroma_key", "luma_key"):
             self.statusBar().showMessage(_("Effect selected: ") + effect_name + _(" (coming soon)"))
+        elif normalized == "crop":
+            self._show_crop_tool()
         else:
             self.statusBar().showMessage(_("Effect selected: ") + effect_name)
 
@@ -601,6 +627,38 @@ class VideoMainWindow(QMainWindow):
         pixmap = self.program_monitor.video_label.pixmap()
         if pixmap and not pixmap.isNull():
             self.scopes_panel.set_image(pixmap.toImage())
+
+    def _show_crop_tool(self):
+        self.program_monitor.show_crop_overlay(True)
+        overlay = self.program_monitor.crop_overlay()
+        if not hasattr(self, '_crop_control_panel') or self._crop_control_panel is None:
+            self._crop_control_panel = CropControlPanel()
+            overlay.cropChanged.connect(
+                lambda r: self._crop_control_panel.update_from_rect(
+                    r, self.program_monitor._video_container.width(),
+                    self.program_monitor._video_container.height()
+                )
+            )
+            self._crop_control_panel.cropApplied.connect(self._apply_crop)
+        self._efctrl_dock.setWidget(self._crop_control_panel)
+        self._efctrl_dock.setWindowTitle(_("Crop"))
+        self.statusBar().showMessage(_("Crop tool active"))
+
+    def _apply_crop(self, left, top, right, bottom):
+        self.program_monitor.show_crop_overlay(False)
+        pixmap = self.program_monitor.video_label.pixmap()
+        if pixmap and not pixmap.isNull():
+            img = pixmap.toImage()
+            w, h = img.width(), img.height()
+            crop_x = left
+            crop_y = top
+            crop_w = w - left - right
+            crop_h = h - top - bottom
+            if crop_w > 0 and crop_h > 0:
+                cropped = img.copy(crop_x, crop_y, crop_w, crop_h)
+                self.program_monitor.video_label.setPixmap(QPixmap.fromImage(cropped))
+                self._update_scopes()
+                self.statusBar().showMessage(_("Crop applied"))
 
     def go_start(self):
         self._current_time = 0.0
