@@ -20,6 +20,7 @@ from editor.color_grading import ColorGradingPanel
 from editor.scopes import ScopesPanel
 from editor.crop_tool import CropOverlay, CropControlPanel
 from editor.lut import LutPanel, apply_lut
+from editor.chroma_key import ChromaKeyWidget
 
 
 class SourceMonitor(QWidget):
@@ -303,6 +304,7 @@ class VideoMainWindow(QMainWindow):
         self._loop = False
         self._color_params = {}
         self._current_lut = None
+        self._chroma_params = {}
 
         self._setup_menus()
         self._setup_toolbars()
@@ -597,8 +599,10 @@ class VideoMainWindow(QMainWindow):
         if normalized in ("color_correction", "brightness_contrast", "color_balance", "hsl_adjust", "curves"):
             self._show_color_grading()
             self.statusBar().showMessage(_("Color grading: ") + effect_name)
-        elif normalized in ("blur_gaussian", "sharpen", "chroma_key", "luma_key"):
-            self.statusBar().showMessage(_("Effect selected: ") + effect_name + _(" (coming soon)"))
+        elif normalized == "chroma_key":
+            self._show_chroma_key()
+        elif normalized == "luma_key":
+            self.statusBar().showMessage(_("Luma Key: ") + _("(coming soon)"))
         elif normalized == "crop":
             self._show_crop_tool()
         else:
@@ -680,6 +684,25 @@ class VideoMainWindow(QMainWindow):
                 self.program_monitor.video_label.setPixmap(QPixmap.fromImage(cropped))
                 self._update_scopes()
                 self.statusBar().showMessage(_("Crop applied"))
+
+    def _show_chroma_key(self):
+        if not hasattr(self, '_chroma_key_widget') or self._chroma_key_widget is None:
+            self._chroma_key_widget = ChromaKeyWidget()
+            self._chroma_key_widget.paramsChanged.connect(self._on_chroma_params_changed)
+        self._efctrl_dock.setWidget(self._chroma_key_widget)
+        self._efctrl_dock.setWindowTitle(_("Chroma Key"))
+        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+            self._on_chroma_params_changed(self._chroma_key_widget.params())
+
+    def _on_chroma_params_changed(self, params):
+        self._chroma_params = params
+        pixmap = self.program_monitor.video_label.pixmap()
+        if pixmap is None or pixmap.isNull():
+            return
+        image = pixmap.toImage()
+        keyed = self._chroma_key_widget.apply_to_image(image)
+        self.program_monitor.video_label.setPixmap(QPixmap.fromImage(keyed))
+        self._update_scopes()
 
     def go_start(self):
         self._current_time = 0.0
