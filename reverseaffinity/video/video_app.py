@@ -17,9 +17,12 @@ from editor.transport_bar import TransportBar
 from editor.video_engine import Timeline, Track, Clip, TransportState
 from editor.file_dialog import get_open_file_name, get_open_file_names, get_save_file_name
 from editor.color_grading import ColorGradingPanel
+from editor.scopes import ScopesPanel
 
 
 class SourceMonitor(QWidget):
+    mediaLoaded = pyqtSignal(str)
+
     def __init__(self, label="Preview", parent=None):
         super().__init__(parent)
         self._media_path = None
@@ -92,6 +95,7 @@ class SourceMonitor(QWidget):
                 self._fps = 1
                 self.scrub_slider.setRange(0, 0)
         self.time_label.setText(f"00:00:00.000 / 00:00:00.000")
+        self.mediaLoaded.emit(path)
 
     def set_media(self, path):
         self._media_path = path
@@ -394,6 +398,13 @@ class VideoMainWindow(QMainWindow):
         efctrl_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.RightDockWidgetArea, efctrl_dock)
 
+        scopes_dock = QDockWidget(_("Scopes"), self)
+        self.scopes_panel = ScopesPanel()
+        scopes_dock.setWidget(self.scopes_panel)
+        scopes_dock.setMinimumWidth(180)
+        scopes_dock.setMinimumHeight(180)
+        self.addDockWidget(Qt.RightDockWidgetArea, scopes_dock)
+
     def _connect_signals(self):
         self.transport.playToggled.connect(self._on_transport_play)
         self.transport.stopTriggered.connect(self._on_transport_stop)
@@ -403,6 +414,8 @@ class VideoMainWindow(QMainWindow):
         self.transport.stepBackward.connect(self.prev_frame)
         self.transport.zoomChanged.connect(self.timeline.set_zoom_level)
         self.effects_panel.effectSelected.connect(self._on_effect_selected)
+        self.program_monitor.mediaLoaded.connect(lambda _: self._update_scopes())
+        self.source_monitor.mediaLoaded.connect(lambda _: self._update_scopes())
 
     def _on_transport_play(self, playing):
         if playing:
@@ -582,6 +595,12 @@ class VideoMainWindow(QMainWindow):
         image = pixmap.toImage()
         graded = self._color_grading_panel.apply_to_image(image)
         self.program_monitor.video_label.setPixmap(QPixmap.fromImage(graded))
+        self.scopes_panel.set_image(graded)
+
+    def _update_scopes(self):
+        pixmap = self.program_monitor.video_label.pixmap()
+        if pixmap and not pixmap.isNull():
+            self.scopes_panel.set_image(pixmap.toImage())
 
     def go_start(self):
         self._current_time = 0.0
