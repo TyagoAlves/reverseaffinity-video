@@ -134,6 +134,53 @@ class Timeline:
         track.add_clip(clip)
         return clip_id
 
+    def ripple_delete(self, clip_id):
+        for track in self.tracks:
+            for i, c in enumerate(track.clips):
+                if c.id == clip_id:
+                    gap = c.duration
+                    del track.clips[i]
+                    for j in range(i, len(track.clips)):
+                        track.clips[j].start_time -= gap
+                    return True
+        return False
+
+    def ripple_insert(self, track_id, time, duration):
+        track = self._find_track(track_id)
+        if track is None:
+            return None
+        for c in track.clips:
+            if c.start_time >= time:
+                c.start_time += duration
+        track.clips.sort(key=lambda c: c.start_time)
+        clip_id = self.next_clip_id
+        self.next_clip_id += 1
+        clip = Clip(clip_id, "", time, duration, 0, duration, track_id, True, "")
+        track.add_clip(clip)
+        return clip_id
+
+    def move_clip(self, clip_id, new_start_time, ripple=True):
+        for track in self.tracks:
+            for i, c in enumerate(track.clips):
+                if c.id == clip_id:
+                    delta = new_start_time - c.start_time
+                    old_end = c.end_time
+                    c.start_time = new_start_time
+                    if ripple:
+                        new_end = c.end_time
+                        if delta < 0:
+                            for j in range(i + 1, len(track.clips)):
+                                track.clips[j].start_time += delta
+                        else:
+                            shift_start = old_end
+                            shift_by = new_end - old_end
+                            for j in range(i + 1, len(track.clips)):
+                                if track.clips[j].start_time >= shift_start:
+                                    track.clips[j].start_time += shift_by
+                    track.clips.sort(key=lambda c: c.start_time)
+                    return True
+        return False
+
     def remove_clip(self, clip_id):
         for track in self.tracks:
             if track.remove_clip(clip_id):

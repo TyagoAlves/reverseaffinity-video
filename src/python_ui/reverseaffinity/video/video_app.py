@@ -663,7 +663,15 @@ class VideoMainWindow(QMainWindow):
         self.statusBar().showMessage(_("Clip split"), 2000)
 
     def ripple_delete(self):
-        self.statusBar().showMessage(_("Ripple delete"), 2000)
+        if not hasattr(self, '_selected_clip_id') or self._selected_clip_id < 0:
+            self.statusBar().showMessage(_("Select a clip to ripple delete"), 3000)
+            return
+        if self.timeline._timeline.ripple_delete(self._selected_clip_id):
+            self._selected_clip_id = -1
+            self.timeline.refresh()
+            self.statusBar().showMessage(_("Ripple delete"), 2000)
+        else:
+            self.statusBar().showMessage(_("Could not delete clip"), 2000)
 
     def add_transition(self):
         self.statusBar().showMessage(_("Transition dialog"), 2000)
