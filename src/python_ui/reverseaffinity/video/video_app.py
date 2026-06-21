@@ -249,8 +249,9 @@ class ProjectPanel(QWidget):
 
     def import_media(self):
         paths, _filter = get_open_file_names(
-            self, _("Import Media"),
-            "", _("Media Files (*.mp4 *.avi *.mov *.mkv *.webm *.png *.jpg *.jpeg *.gif);;All Files (*)")
+            _("Import Media"), "",
+            _("Media Files (*.mp4 *.avi *.mov *.mkv *.webm *.png *.jpg *.jpeg *.gif);;All Files (*)"),
+            self
         )
         added = []
         for path in paths:
