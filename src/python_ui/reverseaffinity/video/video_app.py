@@ -21,6 +21,7 @@ from editor.scopes import ScopesPanel
 from editor.crop_tool import CropOverlay, CropControlPanel
 from editor.lut import LutPanel, apply_lut
 from editor.chroma_key import ChromaKeyWidget
+from editor.blur_sharpen import BlurSharpenWidget
 
 
 class SourceMonitor(QWidget):
@@ -604,7 +605,11 @@ class VideoMainWindow(QMainWindow):
         elif normalized == "chroma_key":
             self._show_chroma_key()
         elif normalized == "luma_key":
-            self.statusBar().showMessage(_("Luma Key: ") + _("(coming soon)"))
+            self._show_chroma_key()
+            self._chroma_key_widget._key_label.setText(_("Key: Luma"))
+            self.statusBar().showMessage(_("Luma Key activated"))
+        elif normalized in ("blur_gaussian", "sharpen"):
+            self._show_blur_sharpen()
         elif normalized == "crop":
             self._show_crop_tool()
         else:
@@ -704,6 +709,24 @@ class VideoMainWindow(QMainWindow):
         image = pixmap.toImage()
         keyed = self._chroma_key_widget.apply_to_image(image)
         self.program_monitor.video_label.setPixmap(QPixmap.fromImage(keyed))
+        self._update_scopes()
+
+    def _show_blur_sharpen(self):
+        if not hasattr(self, '_blur_sharpen_widget') or self._blur_sharpen_widget is None:
+            self._blur_sharpen_widget = BlurSharpenWidget()
+            self._blur_sharpen_widget.paramsChanged.connect(self._on_blur_sharpen_changed)
+        self._efctrl_dock.setWidget(self._blur_sharpen_widget)
+        self._efctrl_dock.setWindowTitle(_("Blur / Sharpen"))
+        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+            self._on_blur_sharpen_changed({"mode": "blur", "amount": 3})
+
+    def _on_blur_sharpen_changed(self, params):
+        pixmap = self.program_monitor.video_label.pixmap()
+        if pixmap is None or pixmap.isNull():
+            return
+        image = pixmap.toImage()
+        result = self._blur_sharpen_widget.apply_to_image(image)
+        self.program_monitor.video_label.setPixmap(QPixmap.fromImage(result))
         self._update_scopes()
 
     def go_start(self):
