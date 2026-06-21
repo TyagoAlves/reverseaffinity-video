@@ -10,7 +10,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("reverseaffinity")
     app.setOrganizationName("reverseaffinity")
-    icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.svg")
+    icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icon.svg")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     app.setApplicationDisplayName("reverseaffinity Video")
