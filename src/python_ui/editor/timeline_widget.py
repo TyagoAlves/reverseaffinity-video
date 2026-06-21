@@ -105,10 +105,21 @@ class TimeRuler(QWidget):
             p.drawLine(phx, 0, phx, self.height())
 
 
+BLEND_COLORS = {
+    "normal": "#6aaa3a", "multiply": "#aa3a3a", "screen": "#3a6aaa",
+    "overlay": "#aa8a3a", "darken": "#3a3a3a", "lighten": "#aaaaaa",
+    "difference": "#aa3aaa", "add": "#3aaa3a", "subtract": "#aa6a3a",
+}
+
 class TrackRow(QWidget):
     clipClicked = pyqtSignal(int)
     trackClicked = pyqtSignal(int)
     splitRequested = pyqtSignal(float, int)
+    visibilityToggled = pyqtSignal(int, bool)
+    lockToggled = pyqtSignal(int, bool)
+    muteToggled = pyqtSignal(int, bool)
+    soloToggled = pyqtSignal(int, bool)
+    blendCycle = pyqtSignal(int)
 
     def __init__(self, track=None, row_index=0, parent=None):
         super().__init__(parent)
@@ -117,7 +128,8 @@ class TrackRow(QWidget):
         self._zoom = 50.0
         self._current_time = 0.0
         self._selected_clip_id = -1
-        self.setFixedHeight(48)
+        self._snap_time = -1.0
+        self.setFixedHeight(52)
         self.setMouseTracking(True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -141,15 +153,13 @@ class TrackRow(QWidget):
         self._current_time = max(0.0, time)
         self.update()
 
-    def minimumSizeHint(self):
-        return QSize(400, 48)
-
-    def sizeHint(self):
-        return QSize(400, 48)
+    def set_snap_time(self, time):
+        self._snap_time = time
+        self.update()
 
     @staticmethod
     def _header_width():
-        return 80
+        return 130
 
     @staticmethod
     def _audio_waveform_data(clip, num_bars=40):
@@ -176,12 +186,130 @@ class TrackRow(QWidget):
             p.setBrush(color)
             p.drawRect(bx, int(mid_y - bh / 2), max(1, bar_w - 1), bh)
 
+    def _draw_track_header(self, p, hdr_w, h):
+        if self._track is None:
+            p.setPen(QColor("#555"))
+            p.drawText(0, 0, hdr_w, h, Qt.AlignCenter, "Empty")
+            return
+
+        is_video = self._track.type == "video"
+        base_color = QColor("#1e1e32")
+        p.fillRect(0, 0, hdr_w, h, base_color)
+
+        if not self._track.enabled:
+            p.fillRect(0, 0, hdr_w, h, QColor(30, 30, 50, 200))
+
+        type_color = QColor("#3a6aaa") if is_video else QColor("#3a8a3a")
+        p.setBrush(type_color)
+        p.setPen(Qt.NoPen)
+        badge_size = 18
+        p.drawRoundedRect(6, (h - badge_size) // 2, badge_size, badge_size, 3, 3)
+        type_char = "V" if is_video else "A"
+        p.setPen(QColor("#fff"))
+
+        font = p.font()
+        font.setPointSize(9)
+        font.setBold(True)
+        p.setFont(font)
+        p.drawText(6, (h - badge_size) // 2, badge_size, badge_size, Qt.AlignCenter, type_char)
+
+        font.setBold(False)
+        font.setPointSize(8)
+        p.setFont(font)
+
+        name_x = 28
+        name_w = hdr_w - 82
+        p.setPen(QColor("#e0e0e0") if self._track.enabled else QColor("#666"))
+        fm = QFontMetrics(font)
+        elided = fm.elidedText(self._track.name or f"Track {self._track.id}",
+                               Qt.ElideRight, name_w)
+        p.drawText(name_x, 0, name_w, 22, Qt.AlignLeft | Qt.AlignVCenter, elided)
+
+        if is_video:
+            blend_lbl = self._track.blend_mode_label()
+            p.setPen(QColor(BLEND_COLORS.get(self._track.blend_mode, "#aaa")))
+            font.setPointSize(7)
+            p.setFont(font)
+            p.drawText(6, 24, hdr_w - 12, 12, Qt.AlignLeft, blend_lbl)
+
+        btn_y = 24
+        btn_w = 22
+        btn_h = 22
+        spacing = 2
+        x = 6
+
+        self._header_buttons = []
+
+        eye_color = QColor("#ffcc00") if self._track.visible else QColor("#555")
+        self._draw_header_btn(p, x, btn_y, btn_w, btn_h, eye_color, "\u25C9")
+        self._header_buttons.append(("visible", x, btn_y, btn_w, btn_h))
+        x += btn_w + spacing
+
+        lock_color = QColor("#ff8844") if self._track.locked else QColor("#555")
+        self._draw_header_btn(p, x, btn_y, btn_w, btn_h, lock_color, "\u26BF")
+        self._header_buttons.append(("locked", x, btn_y, btn_w, btn_h))
+        x += btn_w + spacing
+
+        if not is_video:
+            mute_color = QColor("#ff4444") if self._track.muted else QColor("#555")
+            self._draw_header_btn(p, x, btn_y, btn_w, btn_h, mute_color, "M")
+            self._header_buttons.append(("muted", x, btn_y, btn_w, btn_h))
+            x += btn_w + spacing
+
+            solo_color = QColor("#ffaa00") if self._track.solo else QColor("#555")
+            self._draw_header_btn(p, x, btn_y, btn_w, btn_h, solo_color, "S")
+            self._header_buttons.append(("solo", x, btn_y, btn_w, btn_h))
+
+        p.fillRect(hdr_w - 1, 0, 1, h, QColor("#2a2a40"))
+
+    def _draw_header_btn(self, p, x, y, w, h, color, text):
+        p.setPen(QPen(color, 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(x, y, w, h, 3, 3)
+        p.setPen(color)
+        font = p.font()
+        font.setPointSize(9)
+        font.setBold(True)
+        p.setFont(font)
+        p.drawText(x, y, w, h, Qt.AlignCenter, text)
+
+    def _hit_test_header(self, x):
+        if not hasattr(self, '_header_buttons'):
+            return None
+        for action, hx, hy, hw, hh in self._header_buttons:
+            if hx <= x < hx + hw and hy <= y < hy + hh:
+                return action
+        return None
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             x = event.pos().x()
+            y = event.pos().y()
             if x < self._header_width():
                 if self._track is not None:
-                    self.trackClicked.emit(self._track.id)
+                    action = self._hit_test_header(x)
+                    if action == "visible":
+                        self._track.visible = not self._track.visible
+                        self.visibilityToggled.emit(self._track.id, self._track.visible)
+                        self.update()
+                    elif action == "locked":
+                        self._track.locked = not self._track.locked
+                        self.lockToggled.emit(self._track.id, self._track.locked)
+                        self.update()
+                    elif action == "muted":
+                        self._track.muted = not self._track.muted
+                        self.muteToggled.emit(self._track.id, self._track.muted)
+                        self.update()
+                    elif action == "solo":
+                        self._track.solo = not self._track.solo
+                        self.soloToggled.emit(self._track.id, self._track.solo)
+                        self.update()
+                    elif y >= 24 and self._track.type == "video":
+                        self._track.cycle_blend_mode()
+                        self.blendCycle.emit(self._track.id)
+                        self.update()
+                    else:
+                        self.trackClicked.emit(self._track.id)
                 return
             if self._track is None:
                 return
@@ -221,49 +349,22 @@ class TrackRow(QWidget):
         else:
             p.fillRect(self.rect(), QColor("#1a1a2e"))
 
-        p.fillRect(0, 0, hdr_w, h, QColor("#1e1e32"))
-        p.setPen(QPen(QColor("#2a2a40"), 1))
-        p.drawLine(hdr_w - 1, 0, hdr_w - 1, h)
-
-        font = p.font()
-        font.setPointSize(9)
-        p.setFont(font)
+        self._draw_track_header(p, hdr_w, h)
 
         if self._track is None:
-            p.setPen(QColor("#555"))
-            p.drawText(0, 0, hdr_w, h, Qt.AlignCenter, "Empty")
             return
-
-        type_color = QColor("#3a6aaa") if self._track.type == "video" else QColor("#3a8a3a")
-        p.setBrush(type_color)
-        p.setPen(Qt.NoPen)
-        p.drawRoundedRect(4, (h - 16) // 2, 16, 16, 3, 3)
-        type_char = "V" if self._track.type == "video" else "A"
-        p.setPen(QColor("#fff"))
-        p.drawText(4, (h - 16) // 2, 16, 16, Qt.AlignCenter, type_char)
-
-        p.setPen(QColor("#e0e0e0") if self._track.enabled else QColor("#666"))
-        name_x = 24
-        name_w = hdr_w - 50
-        fm = QFontMetrics(font)
-        elided = fm.elidedText(self._track.name if self._track.name else f"Track {self._track.id}",
-                                Qt.ElideRight, name_w)
-        p.drawText(name_x, 0, name_w, h, Qt.AlignLeft | Qt.AlignVCenter, elided)
-
-        p.setPen(QColor("#aaa") if self._track.enabled else QColor("#555"))
-        p.drawText(hdr_w - 22, 0, 10, h, Qt.AlignCenter, "V" if self._track.enabled else "-")
-        p.setPen(QColor("#555"))
-        p.drawText(hdr_w - 12, 0, 10, h, Qt.AlignCenter, "-")
 
         p.setPen(Qt.NoPen)
         for clip in self._track.clips:
+            if not self._track.visible and not self._track.locked:
+                continue
             clip_x = hdr_w + int(clip.start_time * self._zoom)
             clip_w = max(4, int(clip.duration * self._zoom))
             if clip_x > w or clip_x + clip_w < 0:
                 continue
 
-            clip_h = h - 8
-            clip_y = 4
+            clip_h = h - 10
+            clip_y = 5
             is_selected = clip.id == self._selected_clip_id
 
             if self._track.type == "video":
@@ -273,10 +374,20 @@ class TrackRow(QWidget):
                 clip_color = QColor("#3a8a3a")
                 sel_color = QColor("#4a9b4a")
 
-            p.setBrush(sel_color if is_selected else clip_color)
-            p.drawRoundedRect(clip_x, clip_y, clip_w, clip_h, 3, 3)
+            if not clip.enabled:
+                clip_color = clip_color.darker(150)
+                sel_color = sel_color.darker(150)
 
-            if self._track.type == "audio" and clip_w > 20:
+            p.setBrush(sel_color if is_selected else clip_color)
+
+            has_transition = self._track.type == "video" and clip_w > 60
+            if has_transition:
+                p.drawRect(clip_x, clip_y, clip_w, clip_h)
+                p.drawRoundedRect(clip_x + 6, clip_y + 6, clip_w - 12, clip_h - 12, 3, 3)
+            else:
+                p.drawRoundedRect(clip_x, clip_y, clip_w, clip_h, 3, 3)
+
+            if self._track.type == "audio" and clip_w > 20 and clip.enabled:
                 self._draw_audio_waveform(p, clip_x, clip_y, clip_w, clip_h, clip)
 
             if is_selected:
@@ -287,7 +398,8 @@ class TrackRow(QWidget):
                 p.setBrush(sel_color)
 
             if clip_w > 30:
-                p.setPen(QColor("#e0e0e0"))
+                p.setPen(QColor("#e0e0e0") if clip.enabled else QColor("#666"))
+                font = p.font()
                 font.setPointSize(8)
                 p.setFont(font)
                 fname = clip.name if clip.name else (os.path.basename(clip.filepath) if clip.filepath else "")
@@ -302,6 +414,17 @@ class TrackRow(QWidget):
                         label = fname + dur_text
                     p.drawText(clip_x + 4, clip_y, clip_w - 8, clip_h,
                                Qt.AlignLeft | Qt.AlignVCenter, label)
+
+            if has_transition and is_selected:
+                fade_w = min(20, clip_w // 4)
+                fade_rect = QRect(clip_x + 6, clip_y + 6, fade_w, clip_h - 12)
+                p.fillRect(fade_rect, QColor(255, 255, 255, 30))
+
+        if self._snap_time >= 0:
+            snap_x = hdr_w + int(self._snap_time * self._zoom)
+            if 0 <= snap_x <= w:
+                p.setPen(QPen(QColor(100, 200, 255), 1, Qt.DashLine))
+                p.drawLine(snap_x, 0, snap_x, h)
 
         phx = hdr_w + int(self._current_time * self._zoom)
         if 0 <= phx <= w:
@@ -486,6 +609,11 @@ class TimelineWidget(QWidget):
                 row.clipClicked.connect(self._on_clip_clicked)
                 row.trackClicked.connect(self._on_track_clicked)
                 row.splitRequested.connect(self._on_split_requested)
+                row.visibilityToggled.connect(lambda tid, v: self.refresh())
+                row.lockToggled.connect(lambda tid, v: self.refresh())
+                row.muteToggled.connect(lambda tid, v: self.refresh())
+                row.soloToggled.connect(lambda tid, v: self.refresh())
+                row.blendCycle.connect(lambda tid: self.refresh())
                 self.scroll_layout.addWidget(row)
 
         self.scroll_layout.addStretch()
@@ -495,7 +623,7 @@ class TimelineWidget(QWidget):
         dur = self._timeline.duration() if self._timeline and self._timeline.tracks else 60.0
         total_w = max(400, int(dur * self._zoom) + 80 + 20)
         count = len(self._timeline.tracks) if self._timeline else 1
-        total_h = max(count, 1) * 48
+        total_h = max(count, 1) * 52
         self.scroll_content.setMinimumSize(total_w, total_h)
 
     def _on_hscroll(self, value):

@@ -41,6 +41,26 @@ class Track:
         self.enabled = enabled
         self.clips = []
         self.type = track_type if track_type in ("video", "audio") else "video"
+        self.visible = True
+        self.locked = False
+        self.muted = False
+        self.solo = False
+        self.blend_mode = "normal"
+
+    def blend_mode_label(self):
+        labels = {
+            "normal": "Normal", "multiply": "Multiply", "screen": "Screen",
+            "overlay": "Overlay", "darken": "Darken", "lighten": "Lighten",
+            "difference": "Diff", "add": "Add", "subtract": "Subtract",
+        }
+        return labels.get(self.blend_mode, self.blend_mode)
+
+    BLEND_MODES = ["normal", "multiply", "screen", "overlay", "darken",
+                   "lighten", "difference", "add", "subtract"]
+
+    def cycle_blend_mode(self):
+        idx = self.BLEND_MODES.index(self.blend_mode) if self.blend_mode in self.BLEND_MODES else -1
+        self.blend_mode = self.BLEND_MODES[(idx + 1) % len(self.BLEND_MODES)]
 
     def add_clip(self, clip):
         clip.track_id = self.id
