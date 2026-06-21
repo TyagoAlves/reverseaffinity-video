@@ -151,6 +151,31 @@ class TrackRow(QWidget):
     def _header_width():
         return 80
 
+    @staticmethod
+    def _audio_waveform_data(clip, num_bars=40):
+        import hashlib
+        key = (clip.name or clip.filepath or str(clip.id)).encode()
+        h = hashlib.md5(key).digest()
+        bars = []
+        for i in range(num_bars):
+            v = (h[i % 16] + (i * 7)) % 256
+            bars.append(0.15 + (v / 255.0) * 0.7)
+        return bars
+
+    def _draw_audio_waveform(self, p, clip_x, clip_y, clip_w, clip_h, clip):
+        bars = self._audio_waveform_data(clip)
+        bar_w = max(2, clip_w // len(bars))
+        mid_y = clip_y + clip_h / 2
+        p.setPen(Qt.NoPen)
+        for i, amp in enumerate(bars):
+            bx = clip_x + i * bar_w
+            if bx > clip_x + clip_w:
+                break
+            bh = max(2, int(amp * clip_h * 0.4))
+            color = QColor(100, 220, 100, 160)
+            p.setBrush(color)
+            p.drawRect(bx, int(mid_y - bh / 2), max(1, bar_w - 1), bh)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             x = event.pos().x()
@@ -250,6 +275,9 @@ class TrackRow(QWidget):
 
             p.setBrush(sel_color if is_selected else clip_color)
             p.drawRoundedRect(clip_x, clip_y, clip_w, clip_h, 3, 3)
+
+            if self._track.type == "audio" and clip_w > 20:
+                self._draw_audio_waveform(p, clip_x, clip_y, clip_w, clip_h, clip)
 
             if is_selected:
                 p.setPen(QPen(QColor("#ff8800"), 2))
