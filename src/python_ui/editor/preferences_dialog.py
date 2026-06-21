@@ -222,6 +222,9 @@ class PreferencesDialog(QDialog):
         for k, v in vals.items():
             self._settings.set(k, v)
         self._settings.save()
+        lang = vals.get('language', '')
+        if lang and lang != get_translator().current_lang:
+            get_translator().set_language(lang)
 
     def _on_apply(self):
         self._apply()
