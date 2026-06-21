@@ -67,6 +67,40 @@ class Path:
         if 0 <= index < len(self.anchors):
             del self.anchors[index]
 
+    def insert_anchor_at(self, index, pos, handle_in=None, handle_out=None, type="corner"):
+        self.anchors.insert(index, AnchorPoint(pos, handle_in, handle_out, type))
+        return index
+
+    def add_anchor_at_segment(self, t, seg_index):
+        if seg_index < 0 or seg_index >= len(self.anchors) - 1:
+            return None
+        a, b = self.anchors[seg_index], self.anchors[seg_index + 1]
+        has_cubic = (
+            (a.handle_out - a.position).manhattanLength() > 0.5 or
+            (b.handle_in - b.position).manhattanLength() > 0.5
+        )
+        if has_cubic:
+            p0, p1, p2, p3 = a.position, a.handle_out, b.handle_in, b.position
+            def lerp(p, q, s):
+                return QPointF(p.x() + (q.x() - p.x()) * s, p.y() + (q.y() - p.y()) * s)
+            q0 = lerp(p0, p1, t)
+            q1 = lerp(p1, p2, t)
+            q2 = lerp(p2, p3, t)
+            r0 = lerp(q0, q1, t)
+            r1 = lerp(q1, q2, t)
+            mid = lerp(r0, r1, t)
+            a.handle_out = q0
+            b.handle_in = q2
+            self.anchors.insert(seg_index + 1, AnchorPoint(mid, r0, r1, "smooth"))
+            return seg_index + 1
+        else:
+            mid = QPointF(
+                a.position.x() + (b.position.x() - a.position.x()) * t,
+                a.position.y() + (b.position.y() - a.position.y()) * t
+            )
+            self.anchors.insert(seg_index + 1, AnchorPoint(mid))
+            return seg_index + 1
+
     def to_qpainterpath(self):
         path = QPainterPath()
         if not self.anchors:
@@ -131,6 +165,29 @@ class Path:
                 best_dist = d
                 best = idx + 1
         return best
+
+    def move_handle(self, index, handle_type, new_pos):
+        if 0 <= index < len(self.anchors):
+            if handle_type == 'handle_in':
+                self.anchors[index].handle_in = QPointF(new_pos)
+            elif handle_type == 'handle_out':
+                self.anchors[index].handle_out = QPointF(new_pos)
+
+    def rasterize_to(self, image, fill_color=None, stroke_color=None, stroke_width=1.0, aa=True):
+        p = QPainter(image)
+        if aa:
+            p.setRenderHint(QPainter.Antialiasing)
+        path = self.to_qpainterpath()
+        if self.fill and fill_color:
+            p.fillPath(path, QBrush(fill_color))
+        elif self.fill:
+            p.fillPath(path, QBrush(QColor(0, 0, 0, 0)))
+        if self.stroke or stroke_color:
+            col = stroke_color or self.stroke_color
+            sw = stroke_width if stroke_width else self.stroke_width
+            p.setPen(QPen(col, sw))
+            p.drawPath(path)
+        p.end()
 
     def to_svg(self):
         if not self.anchors:

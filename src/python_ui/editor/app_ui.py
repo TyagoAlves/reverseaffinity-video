@@ -1493,6 +1493,8 @@ class MainWindow(QMainWindow):
     def _init_plugins(self):
         try:
             from plugins import PluginManager
+            from .file_formats import FORMAT_REGISTRY
+            from .tools import TOOLS_BY_NAME, SHORTCUT_MAP, TOOL_LIST
             mgr = PluginManager(plugin_dir=os.path.join(os.path.dirname(__file__), "..", "plugins"))
             mgr.discover()
             ctx = {
@@ -1500,12 +1502,27 @@ class MainWindow(QMainWindow):
                 "main_window": self,
                 "menu_bar": self.menuBar(),
                 "tab_widget": self.right_tabs,
+                "tool_registry": TOOLS_BY_NAME,
+                "shortcut_registry": SHORTCUT_MAP,
+                "tool_list": TOOL_LIST,
+                "format_registry": FORMAT_REGISTRY,
             }
             for plugin in mgr.plugins:
                 try:
                     plugin.on_load(ctx)
                     for filt_name, filt_func in plugin.register_filters():
                         self.canvas._plugin_filters[filt_name] = filt_func
+                    for tool_cls in plugin.register_tools():
+                        name = tool_cls.name.lower()
+                        TOOLS_BY_NAME[name] = tool_cls
+                        shortcut = getattr(tool_cls, 'shortcut', '').lower()
+                        if shortcut:
+                            SHORTCUT_MAP[shortcut] = tool_cls
+                        known_groups = [g for g in TOOL_LIST if g[0] == "Draw"]
+                        if known_groups:
+                            known_groups[0][1].append(tool_cls)
+                    for ext, info in plugin.register_file_formats():
+                        FORMAT_REGISTRY[ext] = info
                     plugin.register_menu_items(self.menuBar())
                     plugin.register_panels(self.right_tabs)
                 except Exception:
@@ -1517,6 +1534,12 @@ class MainWindow(QMainWindow):
             return mgr
         except Exception:
             pass
+
+    def closeEvent(self, event):
+        if hasattr(self, '_plugin_manager') and self._plugin_manager:
+            ctx = {"canvas": self.canvas, "main_window": self}
+            self._plugin_manager.unload_all(ctx)
+        event.accept()
 
 
 def main():
