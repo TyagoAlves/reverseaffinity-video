@@ -25,6 +25,7 @@ from editor.blur_sharpen import BlurSharpenWidget
 from editor.audio_mixer import AudioMixerPanel
 from editor.video_glplayer import VideoGLPlayer
 from editor.gpu_accel import GPUAccel
+from editor.export_dialog import ExportDialog
 
 
 class SourceMonitor(QWidget):
@@ -611,13 +612,8 @@ class VideoMainWindow(QMainWindow):
         self.save_project()
 
     def export_media(self):
-        path, _filter = get_save_file_name(
-            _("Export Media"), "",
-            _("Video Files (*.mp4);;Image Sequence (*.png *.jpg);;All Files (*)"),
-            self
-        )
-        if path:
-            self.statusBar().showMessage(_("Export started: ") + os.path.basename(path))
+        dlg = ExportDialog(self.timeline, self)
+        dlg.exec_()
 
     def undo(self):
         self.statusBar().showMessage(_("Undo"), 2000)
