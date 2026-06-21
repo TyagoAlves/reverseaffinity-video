@@ -255,11 +255,9 @@ class VideoMainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(_("reverseaffinity Video - [Untitled]"))
         screen = QApplication.primaryScreen().availableGeometry()
-        max_w = min(int(screen.width() * 0.85), screen.width())
-        max_h = min(int(screen.height() * 0.85), screen.height())
-        self.resize(min(max_w, 1600), min(max_h, 1000))
+        self.setMinimumSize(800, 500)
         self.setMaximumSize(screen.width(), screen.height())
-        apply_dark_theme(self)
+        self.showMaximized()
 
         self._play_timer = QTimer()
         self._play_timer.setInterval(33)
