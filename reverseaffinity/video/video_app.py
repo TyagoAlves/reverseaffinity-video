@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QSlider, QSpinBox, QComboBox, QToolButton,
     QFrame, QScrollArea, QGridLayout, QSizePolicy, QFileDialog, QMessageBox,
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, QUrl
+from PyQt5.QtCore import Qt, QTimer, QSize, QUrl, pyqtSignal
 from PyQt5.QtGui import QFont, QPalette, QColor, QIcon, QPixmap, QImage, QKeySequence
 
 from reverseaffinity.i18n import _
@@ -16,6 +16,7 @@ from editor.timeline_widget import TimelineWidget
 from editor.transport_bar import TransportBar
 from editor.video_engine import Timeline, Track, Clip, TransportState
 from editor.file_dialog import get_open_file_name, get_open_file_names, get_save_file_name
+from editor.color_grading import ColorGradingPanel
 
 
 class SourceMonitor(QWidget):
@@ -162,6 +163,8 @@ class SourceMonitor(QWidget):
 
 
 class EffectsPanel(QWidget):
+    effectSelected = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -178,6 +181,9 @@ class EffectsPanel(QWidget):
             _("HSL Adjust"), _("Curves"), _("Blur/Gaussian"), _("Sharpen"),
             _("Chroma Key"), _("Luma Key"), _("Transform"), _("Crop"), _("Opacity"),
         ])
+        self.effects_list.itemClicked.connect(
+            lambda item: self.effectSelected.emit(item.text())
+        )
         layout.addWidget(self.effects_list, 1)
 
 
@@ -266,12 +272,14 @@ class VideoMainWindow(QMainWindow):
         self._duration = 60.0
         self._playing = False
         self._loop = False
+        self._color_params = {}
 
         self._setup_menus()
         self._setup_toolbars()
         self._setup_central()
         self._setup_docks()
         self._connect_signals()
+        self._color_grading_panel = None
         self.statusBar().showMessage(_("Ready"))
 
     @staticmethod
@@ -371,12 +379,18 @@ class VideoMainWindow(QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, project_dock)
 
         effects_dock = QDockWidget(_("Effects"), self)
-        effects_dock.setWidget(EffectsPanel())
+        self.effects_panel = EffectsPanel()
+        effects_dock.setWidget(self.effects_panel)
         effects_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.RightDockWidgetArea, effects_dock)
 
         efctrl_dock = QDockWidget(_("Effect Controls"), self)
-        efctrl_dock.setWidget(QLabel(_("No clip selected")))
+        self._efctrl_dock = efctrl_dock
+        self._efctrl_label = QLabel(_("Select an effect from the Effects panel"))
+        self._efctrl_label.setAlignment(Qt.AlignCenter)
+        self._efctrl_label.setWordWrap(True)
+        self._efctrl_label.setStyleSheet("color: #666; padding: 20px;")
+        efctrl_dock.setWidget(self._efctrl_label)
         efctrl_dock.setMinimumWidth(200)
         self.addDockWidget(Qt.RightDockWidgetArea, efctrl_dock)
 
@@ -388,6 +402,7 @@ class VideoMainWindow(QMainWindow):
         self.transport.stepForward.connect(self.next_frame)
         self.transport.stepBackward.connect(self.prev_frame)
         self.transport.zoomChanged.connect(self.timeline.set_zoom_level)
+        self.effects_panel.effectSelected.connect(self._on_effect_selected)
 
     def _on_transport_play(self, playing):
         if playing:
@@ -537,6 +552,36 @@ class VideoMainWindow(QMainWindow):
 
     def toggle_linked(self):
         pass
+
+    def _on_effect_selected(self, effect_name):
+        normalized = effect_name.lower().replace(" ", "_").replace("/", "_")
+        if normalized in ("color_correction", "brightness_contrast", "color_balance", "hsl_adjust", "curves"):
+            self._show_color_grading()
+            self.statusBar().showMessage(_("Color grading: ") + effect_name)
+        elif normalized in ("blur_gaussian", "sharpen", "chroma_key", "luma_key"):
+            self.statusBar().showMessage(_("Effect selected: ") + effect_name + _(" (coming soon)"))
+        else:
+            self.statusBar().showMessage(_("Effect selected: ") + effect_name)
+
+    def _show_color_grading(self):
+        if self._color_grading_panel is None:
+            self._color_grading_panel = ColorGradingPanel()
+            self._color_grading_panel.paramsChanged.connect(self._on_color_params_changed)
+        self._efctrl_dock.setWidget(self._color_grading_panel)
+        self._efctrl_dock.setWindowTitle(_("Color Grading"))
+
+    def _on_color_params_changed(self, params):
+        self._color_params = params
+        if self.program_monitor._media_path and self.program_monitor.video_label.pixmap():
+            self._apply_color_to_preview()
+
+    def _apply_color_to_preview(self):
+        pixmap = self.program_monitor.video_label.pixmap()
+        if pixmap is None or pixmap.isNull():
+            return
+        image = pixmap.toImage()
+        graded = self._color_grading_panel.apply_to_image(image)
+        self.program_monitor.video_label.setPixmap(QPixmap.fromImage(graded))
 
     def go_start(self):
         self._current_time = 0.0
